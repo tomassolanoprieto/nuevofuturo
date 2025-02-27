@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, Routes, Route } from 'react-router-dom';
-import {
-  LogOut,
-  BarChart,
+import { 
+  LogOut, 
+  BarChart, 
   Shield,
   User,
   Users,
@@ -12,15 +12,15 @@ import {
   Plus,
   Edit,
   Calendar,
-  Settings,
+  FileText,
+  Settings
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import SupervisorEmployees from './SupervisorEmployees';
-import SupervisorRequests from './SupervisorRequests';
-import SupervisorCalendar from './SupervisorCalendar';
-import SupervisorReports from './SupervisorReports';
-
-type TimeEntryType = 'turno' | 'coordinacion' | 'formacion' | 'sustitucion' | 'otros';
+import SupervisorDelegationSettings from './SupervisorDelegationSettings';
+import SupervisorDelegationEmployees from './SupervisorDelegationEmployees';
+import SupervisorDelegationRequests from './SupervisorDelegationRequests';
+import SupervisorDelegationCalendar from './SupervisorDelegationCalendar';
+import SupervisorDelegationReports from './SupervisorDelegationReports';
 
 function Overview() {
   const [employees, setEmployees] = useState<any[]>([]);
@@ -30,62 +30,15 @@ function Overview() {
   const [selectedEmployee, setSelectedEmployee] = useState<any | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingEntry, setEditingEntry] = useState<any>(null);
+  const [editingEntry, setEditingEntry] = useState(null);
   const [newEntry, setNewEntry] = useState({
     timestamp: '',
-    entry_type: 'clock_in',
-    time_type: 'turno' as TimeEntryType,
-    work_center: '',
+    entry_type: 'clock_in'
   });
-  const [supervisorWorkCenters, setSupervisorWorkCenters] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
-  const supervisorEmail = localStorage.getItem('supervisorEmail');
+  const [delegation] = useState<string | null>('MADRID');
 
   useEffect(() => {
-    const getSupervisorInfo = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        if (!supervisorEmail) {
-          throw new Error('No se encontró el correo electrónico del supervisor');
-        }
-
-        const { data: workCenters, error: workCentersError } = await supabase
-          .rpc('get_supervisor_work_centers', {
-            p_email: supervisorEmail,
-          });
-
-        if (workCentersError) {
-          throw workCentersError;
-        }
-
-        if (!workCenters?.length) {
-          throw new Error('No se encontraron centros de trabajo asignados');
-        }
-
-        setSupervisorWorkCenters(workCenters);
-
-        const { data: employeesData, error: employeesError } = await supabase
-          .rpc('get_supervisor_center_employees_v6', {
-            p_email: supervisorEmail,
-          });
-
-        if (employeesError) {
-          throw employeesError;
-        }
-
-        setEmployees(employeesData || []);
-      } catch (err) {
-        console.error('Error getting supervisor info:', err);
-        setError(err instanceof Error ? err.message : 'Error al cargar los datos');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    getSupervisorInfo();
+    fetchEmployees();
   }, []);
 
   useEffect(() => {
@@ -94,236 +47,129 @@ function Overview() {
     }
   }, [employees]);
 
+  const fetchEmployees = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase.rpc(
+        'get_employees_by_delegation',
+        { p_delegation: 'MADRID' }
+      );
+
+      if (error) {
+        console.error('Error en RPC:', error);
+        throw error;
+      }
+
+      if (data) {
+        console.log('Empleados obtenidos:', data);
+        setEmployees(data);
+      }
+    } catch (err) {
+      console.error('Error fetching employees:', err);
+      setEmployees([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchTimeEntries = async () => {
     try {
-      setError(null);
-      const employeeIds = employees.map((emp) => emp.id);
-
+      const employeeIds = employees.map(emp => emp.id);
+      
       const { data: timeEntriesData, error } = await supabase
         .from('time_entries')
         .select('*')
         .in('employee_id', employeeIds)
-        .eq('is_active', true)
         .order('timestamp', { ascending: false });
 
       if (error) throw error;
       setTimeEntries(timeEntriesData || []);
     } catch (err) {
       console.error('Error fetching time entries:', err);
-      setError(err instanceof Error ? err.message : 'Error al cargar los fichajes');
     }
   };
 
   const handleAddEntry = async () => {
     try {
-      const employeeId = selectedEmployee.employee.id;
-      const entryDate = new Date(newEntry.timestamp).toISOString().split('T')[0];
-
-      if (newEntry.entry_type !== 'clock_in') {
-        const { data: activeEntries, error: fetchError } = await supabase
-          .from('time_entries')
-          .select('*')
-          .eq('employee_id', employeeId)
-          .eq('entry_type', 'clock_in')
-          .eq('is_active', true)
-          .gte('timestamp', `${entryDate}T00:00:00`)
-          .lte('timestamp', `${entryDate}T23:59:59`)
-          .order('timestamp', { ascending: false })
-          .limit(1);
-
-        if (fetchError) throw fetchError;
-
-        if (!activeEntries || activeEntries.length === 0) {
-          throw new Error('Debe existir una entrada activa antes de registrar una salida o pausa.');
-        }
-      }
-
-      const { error } = await supabase.from('time_entries').insert([
-        {
-          employee_id: employeeId,
+      const { error } = await supabase
+        .from('time_entries')
+        .insert([{
+          employee_id: selectedEmployee.employee.id,
           entry_type: newEntry.entry_type,
-          time_type: newEntry.entry_type === 'clock_in' ? newEntry.time_type : null,
-          timestamp: new Date(newEntry.timestamp).toISOString(),
-          changes: null,
-          original_timestamp: null,
-          is_active: true,
-          work_center: newEntry.work_center,
-        },
-      ]);
+          timestamp: new Date(newEntry.timestamp).toISOString()
+        }]);
 
       if (error) throw error;
 
-      await fetchTimeEntries();
-      setShowEditModal(false);
-      setNewEntry({
-        timestamp: '',
-        entry_type: 'clock_in',
-        time_type: 'turno',
-        work_center: '',
-      });
+      // Refresh data
+      window.location.reload();
     } catch (err) {
       console.error('Error adding entry:', err);
-      setError(err instanceof Error ? err.message : 'Error al añadir el fichaje');
+      alert('Error al añadir el fichaje');
     }
   };
 
   const handleUpdateEntry = async () => {
     try {
-      const employeeId = selectedEmployee.employee.id;
-      const entryDate = new Date(editingEntry.timestamp).toISOString().split('T')[0];
-
-      if (editingEntry.entry_type !== 'clock_in') {
-        const { data: activeEntries, error: fetchError } = await supabase
-          .from('time_entries')
-          .select('*')
-          .eq('employee_id', employeeId)
-          .eq('entry_type', 'clock_in')
-          .eq('is_active', true)
-          .gte('timestamp', `${entryDate}T00:00:00`)
-          .lte('timestamp', `${entryDate}T23:59:59`)
-          .order('timestamp', { ascending: false })
-          .limit(1);
-
-        if (fetchError) throw fetchError;
-
-        if (!activeEntries || activeEntries.length === 0) {
-          throw new Error('Debe existir una entrada activa antes de registrar una salida o pausa.');
-        }
-      }
-
       const { error } = await supabase
         .from('time_entries')
         .update({
           entry_type: editingEntry.entry_type,
-          time_type: editingEntry.entry_type === 'clock_in' ? editingEntry.time_type : null,
-          timestamp: new Date(editingEntry.timestamp).toISOString(),
-          changes: 'edited',
-          original_timestamp: editingEntry.original_timestamp || editingEntry.timestamp,
-          work_center: editingEntry.work_center,
+          timestamp: new Date(editingEntry.timestamp).toISOString()
         })
         .eq('id', editingEntry.id);
 
       if (error) throw error;
 
-      await fetchTimeEntries();
-      setShowEditModal(false);
-      setEditingEntry(null);
+      // Refresh data
+      window.location.reload();
     } catch (err) {
       console.error('Error updating entry:', err);
-      setError(err instanceof Error ? err.message : 'Error al actualizar el fichaje');
+      alert('Error al actualizar el fichaje');
     }
   };
 
-  const handleDeleteEntry = async (entryId: string) => {
+  const handleDeleteEntry = async (entryId) => {
     if (!confirm('¿Estás seguro de que quieres eliminar este fichaje?')) return;
 
     try {
       const { error } = await supabase
         .from('time_entries')
-        .update({
-          changes: 'eliminated',
-          is_active: false,
-        })
+        .delete()
         .eq('id', entryId);
 
       if (error) throw error;
 
-      await fetchTimeEntries();
+      // Refresh data
+      window.location.reload();
     } catch (err) {
       console.error('Error deleting entry:', err);
-      setError('Error al eliminar el fichaje');
+      alert('Error al eliminar el fichaje');
     }
   };
 
-  const formatDuration = (ms: number) => {
+  const formatDuration = (ms) => {
     const hours = Math.floor(ms / (1000 * 60 * 60));
     const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
     return `${hours}h ${minutes}m`;
   };
 
-  const calculateDailyWorkTime = (entries: any[]) => {
-    const today = new Date().toLocaleDateString();
-    const todayEntries = entries.filter(
-      (entry) => new Date(entry.timestamp).toLocaleDateString() === today
-    );
-
-    let totalTime = 0;
-    let clockInTime: number | null = null;
-    let breakStartTime: number | null = null;
-
-    todayEntries
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
-      .forEach((entry) => {
-        const time = new Date(entry.timestamp).getTime();
-
-        switch (entry.entry_type) {
-          case 'clock_in':
-            clockInTime = time;
-            break;
-          case 'break_start':
-            if (clockInTime) {
-              totalTime += time - clockInTime;
-              clockInTime = null;
-            }
-            breakStartTime = time;
-            break;
-          case 'break_end':
-            breakStartTime = null;
-            clockInTime = time;
-            break;
-          case 'clock_out':
-            if (clockInTime) {
-              totalTime += time - clockInTime;
-              clockInTime = null;
-            }
-            break;
-        }
-      });
-
-    if (clockInTime && !breakStartTime) {
-      const now = new Date().getTime();
-      totalTime += now - clockInTime;
-    }
-
-    return totalTime;
-  };
-
-  const getEntryTypeText = (type: string) => {
+  const getEntryTypeText = (type) => {
     switch (type) {
-      case 'clock_in':
-        return 'Entrada';
-      case 'break_start':
-        return 'Inicio Pausa';
-      case 'break_end':
-        return 'Fin Pausa';
-      case 'clock_out':
-        return 'Salida';
-      default:
-        return type;
+      case 'clock_in': return 'Entrada';
+      case 'break_start': return 'Inicio Pausa';
+      case 'break_end': return 'Fin Pausa';
+      case 'clock_out': return 'Salida';
+      default: return type;
     }
   };
 
-  const getTimeTypeText = (type: TimeEntryType | null) => {
-    switch (type) {
-      case 'turno':
-        return 'Fichaje de turno';
-      case 'coordinacion':
-        return 'Fichaje de coordinación';
-      case 'formacion':
-        return 'Fichaje de formación';
-      case 'sustitucion':
-        return 'Fichaje de horas de sustitución';
-      case 'otros':
-        return 'Otros';
-      default:
-        return '';
-    }
-  };
-
-  const employeeWorkTimes = employees.map((employee) => {
-    const employeeEntries = timeEntries.filter((entry) => entry.employee_id === employee.id);
-
-    const entriesByDate = employeeEntries.reduce((acc: any, entry) => {
+  // Calculate total work time for each employee
+  const employeeWorkTimes = employees.map(employee => {
+    const employeeEntries = timeEntries.filter(entry => entry.employee_id === employee.id);
+    
+    // Group entries by date
+    const entriesByDate = employeeEntries.reduce((acc, entry) => {
       const date = new Date(entry.timestamp).toLocaleDateString();
       if (!acc[date]) {
         acc[date] = [];
@@ -334,15 +180,16 @@ function Overview() {
 
     let totalTime = 0;
 
-    Object.values(entriesByDate).forEach((dayEntries: any) => {
+    // Calculate time for each day
+    Object.values(entriesByDate).forEach(dayEntries => {
       const sortedEntries = dayEntries.sort(
-        (a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
       );
 
-      let clockInTime: number | null = null;
-      let breakStartTime: number | null = null;
+      let clockInTime = null;
+      let breakStartTime = null;
 
-      sortedEntries.forEach((entry: any) => {
+      sortedEntries.forEach(entry => {
         const time = new Date(entry.timestamp).getTime();
 
         switch (entry.entry_type) {
@@ -369,6 +216,7 @@ function Overview() {
         }
       });
 
+      // If there's an open clock in without a clock out (still working)
       if (clockInTime && !breakStartTime) {
         const now = new Date().getTime();
         totalTime += now - clockInTime;
@@ -378,19 +226,16 @@ function Overview() {
     return {
       employee,
       totalTime,
-      entries: employeeEntries,
+      entries: employeeEntries
     };
   });
 
   const totalWorkTime = employeeWorkTimes.reduce((acc, curr) => acc + curr.totalTime, 0);
 
+  // Filter employees based on search term
   const filteredEmployees = employeeWorkTimes.filter(({ employee }) =>
     employee.fiscal_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    employee.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (employee.work_centers &&
-      employee.work_centers.some(
-        (wc: any) => typeof wc === 'string' && wc.toLowerCase().includes(searchTerm.toLowerCase())
-      ))
+    employee.email.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -398,14 +243,8 @@ function Overview() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-8">
           <h1 className="text-2xl font-bold mb-2">Vista General</h1>
-          <p className="text-gray-600">Centros de Trabajo: {supervisorWorkCenters.join(', ')}</p>
+          <p className="text-gray-600">Delegación: {delegation}</p>
         </div>
-
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">
-            {error}
-          </div>
-        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
           <div className="bg-white p-6 rounded-xl shadow-sm">
@@ -430,13 +269,14 @@ function Overview() {
             <div className="flex items-center gap-4">
               <Shield className="w-8 h-8 text-purple-600" />
               <div>
-                <p className="text-sm text-gray-600">Centros de Trabajo</p>
-                <p className="text-2xl font-bold">{supervisorWorkCenters.length}</p>
+                <p className="text-sm text-gray-600">Delegación</p>
+                <p className="text-2xl font-bold">{delegation}</p>
               </div>
             </div>
           </div>
         </div>
 
+        {/* Search */}
         <div className="mb-6">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -450,6 +290,7 @@ function Overview() {
           </div>
         </div>
 
+        {/* Employee List */}
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
           <table className="min-w-full divide-y divide-gray-200">
             <thead>
@@ -503,7 +344,7 @@ function Overview() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-500">
-                        {Array.isArray(employee.work_centers) ? employee.work_centers.join(', ') : ''}
+                        {employee.work_centers.join(', ')}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -518,9 +359,10 @@ function Overview() {
           </table>
         </div>
 
+        {/* Details Modal */}
         {showDetailsModal && selectedEmployee && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-lg max-w-6xl w-full max-h-[80vh] overflow-hidden">
+            <div className="bg-white rounded-xl shadow-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl font-semibold">
@@ -534,20 +376,7 @@ function Overview() {
                   </button>
                 </div>
               </div>
-
-              <div className="p-6 bg-blue-50 border-b border-blue-200">
-                <div className="flex items-center gap-4">
-                  <Clock className="w-6 h-6 text-blue-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">Horas trabajadas hoy</p>
-                    <p className="text-xl font-bold">
-                      {formatDuration(calculateDailyWorkTime(selectedEmployee.entries))}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 overflow-y-auto" style={{ maxHeight: '60vh' }}>
+              <div className="p-6 overflow-y-auto max-h-[calc(80vh-120px)]">
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -557,9 +386,7 @@ function Overview() {
                     <div>
                       <p className="text-sm text-gray-500">Centros de Trabajo</p>
                       <p className="font-medium">
-                        {Array.isArray(selectedEmployee.employee.work_centers)
-                          ? selectedEmployee.employee.work_centers.join(', ')
-                          : ''}
+                        {selectedEmployee.employee.work_centers.join(', ')}
                       </p>
                     </div>
                   </div>
@@ -589,26 +416,14 @@ function Overview() {
                               Tipo
                             </th>
                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Tipo de Fichaje
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Centro de Trabajo
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                              Cambios
-                            </th>
-                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                               Acciones
                             </th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
                           {selectedEmployee.entries
-                            .sort(
-                              (a: any, b: any) =>
-                                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-                            )
-                            .map((entry: any) => (
+                            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                            .map((entry) => (
                               <tr key={entry.id} className="hover:bg-gray-50">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                   {new Date(entry.timestamp).toLocaleDateString()}
@@ -620,15 +435,6 @@ function Overview() {
                                   {getEntryTypeText(entry.entry_type)}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  {entry.entry_type === 'clock_in' ? getTimeTypeText(entry.time_type) : ''}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  {entry.work_center || ''}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                  {entry.changes || 'N/A'}
-                                </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                   <div className="flex gap-2">
                                     <button
                                       onClick={(e) => {
@@ -636,10 +442,7 @@ function Overview() {
                                         setEditingEntry({
                                           id: entry.id,
                                           timestamp: new Date(entry.timestamp).toISOString().slice(0, 16),
-                                          entry_type: entry.entry_type,
-                                          time_type: entry.time_type,
-                                          work_center: entry.work_center,
-                                          original_timestamp: entry.original_timestamp,
+                                          entry_type: entry.entry_type
                                         });
                                         setShowEditModal(true);
                                       }}
@@ -680,9 +483,10 @@ function Overview() {
           </div>
         )}
 
+        {/* Edit/Add Modal */}
         {showEditModal && selectedEmployee && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full">
+            <div className="bg-white rounded-xl shadow-lg max-w-md w-full">
               <div className="p-6 border-b border-gray-200">
                 <div className="flex justify-between items-center">
                   <h2 className="text-xl font-semibold">
@@ -694,9 +498,7 @@ function Overview() {
                       setEditingEntry(null);
                       setNewEntry({
                         timestamp: '',
-                        entry_type: 'clock_in',
-                        time_type: 'turno',
-                        work_center: '',
+                        entry_type: 'clock_in'
                       });
                     }}
                     className="text-gray-500 hover:text-gray-700"
@@ -706,18 +508,14 @@ function Overview() {
                 </div>
               </div>
               <div className="p-6">
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (editingEntry) {
-                      handleUpdateEntry();
-                    } else {
-                      handleAddEntry();
-                    }
-                  }}
-                  className="space-y-4"
-                >
-                  {/* Campo: Fecha y Hora */}
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  if (editingEntry) {
+                    handleUpdateEntry();
+                  } else {
+                    handleAddEntry();
+                  }
+                }} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Fecha y Hora
@@ -727,9 +525,9 @@ function Overview() {
                       value={editingEntry ? editingEntry.timestamp : newEntry.timestamp}
                       onChange={(e) => {
                         if (editingEntry) {
-                          setEditingEntry({ ...editingEntry, timestamp: e.target.value });
+                          setEditingEntry({...editingEntry, timestamp: e.target.value});
                         } else {
-                          setNewEntry({ ...newEntry, timestamp: e.target.value });
+                          setNewEntry({...newEntry, timestamp: e.target.value});
                         }
                       }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -737,7 +535,6 @@ function Overview() {
                     />
                   </div>
 
-                  {/* Campo: Tipo de Fichaje */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Tipo de Fichaje
@@ -746,9 +543,9 @@ function Overview() {
                       value={editingEntry ? editingEntry.entry_type : newEntry.entry_type}
                       onChange={(e) => {
                         if (editingEntry) {
-                          setEditingEntry({ ...editingEntry, entry_type: e.target.value });
+                          setEditingEntry({...editingEntry, entry_type: e.target.value});
                         } else {
-                          setNewEntry({ ...newEntry, entry_type: e.target.value });
+                          setNewEntry({...newEntry, entry_type: e.target.value});
                         }
                       }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -761,63 +558,6 @@ function Overview() {
                     </select>
                   </div>
 
-                  {/* Campo: Tipo de Entrada (solo para ENTRADA) */}
-                  {(editingEntry?.entry_type === 'clock_in' || newEntry.entry_type === 'clock_in') && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Tipo de Entrada
-                      </label>
-                      <select
-                        value={editingEntry ? editingEntry.time_type : newEntry.time_type}
-                        onChange={(e) => {
-                          if (editingEntry) {
-                            setEditingEntry({
-                              ...editingEntry,
-                              time_type: e.target.value as TimeEntryType,
-                            });
-                          } else {
-                            setNewEntry({
-                              ...newEntry,
-                              time_type: e.target.value as TimeEntryType,
-                            });
-                          }
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        required
-                      >
-                        <option value="turno">Fichaje de turno</option>
-                        <option value="coordinacion">Fichaje de coordinación</option>
-                        <option value="formacion">Fichaje de formación</option>
-                        <option value="sustitucion">Fichaje de horas de sustitución</option>
-                        <option value="otros">Otros</option>
-                      </select>
-                    </div>
-                  )}
-
-                  {/* Campo: Centro de Trabajo (siempre visible) */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Centro de Trabajo
-                    </label>
-                    <select
-                      value={editingEntry ? editingEntry.work_center : selectedEmployee.employee.work_centers[0]}
-                      onChange={(e) => {
-                        if (editingEntry) {
-                          setEditingEntry({ ...editingEntry, work_center: e.target.value });
-                        }
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      required
-                    >
-                      {selectedEmployee.employee.work_centers.map((center: string) => (
-                        <option key={center} value={center}>
-                          {center}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Botones del Formulario */}
                   <div className="flex justify-end gap-4 mt-6">
                     <button
                       type="button"
@@ -826,9 +566,7 @@ function Overview() {
                         setEditingEntry(null);
                         setNewEntry({
                           timestamp: '',
-                          entry_type: 'clock_in',
-                          time_type: 'turno',
-                          work_center: '',
+                          entry_type: 'clock_in'
                         });
                       }}
                       className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
@@ -852,9 +590,14 @@ function Overview() {
   );
 }
 
-export default function SupervisorDashboard() {
+export default function SupervisorDelegationDashboard() {
   const [activeTab, setActiveTab] = useState('overview');
   const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem('pin');
+    navigate('/login/supervisor/delegacion');
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -864,12 +607,12 @@ export default function SupervisorDashboard() {
             <div className="flex items-center space-x-8">
               <div className="flex items-center">
                 <Shield className="h-8 w-8 text-purple-600 mr-2" />
-                <span className="text-xl font-bold text-gray-900">Portal Supervisor Centro</span>
+                <span className="text-xl font-bold text-gray-900">Portal Supervisor Delegación</span>
               </div>
               <button
                 onClick={() => {
                   setActiveTab('overview');
-                  navigate('/supervisor/centro');
+                  navigate('/supervisor/delegacion');
                 }}
                 className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
                   activeTab === 'overview' ? 'text-purple-600' : ''
@@ -880,7 +623,7 @@ export default function SupervisorDashboard() {
               <button
                 onClick={() => {
                   setActiveTab('employees');
-                  navigate('/supervisor/centro/empleados');
+                  navigate('/supervisor/delegacion/empleados');
                 }}
                 className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
                   activeTab === 'employees' ? 'text-purple-600' : ''
@@ -891,40 +634,51 @@ export default function SupervisorDashboard() {
               <button
                 onClick={() => {
                   setActiveTab('requests');
-                  navigate('/supervisor/centro/solicitudes');
+                  navigate('/supervisor/delegacion/solicitudes');
                 }}
                 className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'requests' ? 'text-purple-600' : ''
+                  activeTab === 'calendar' ? 'text-purple-600' : ''
                 }`}
               >
                 Solicitudes
               </button>
               <button
                 onClick={() => {
+                  setActiveTab('calendar');
+                  navigate('/supervisor/delegacion/calendario');
+                }}
+                className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
+                  activeTab === 'requests' ? 'text-purple-600' : ''
+                }`}                              
+              >
+                Calendario
+              </button>
+              <button
+                onClick={() => {
                   setActiveTab('reports');
-                  navigate('/supervisor/centro/informes');
+                  navigate('/supervisor/delegacion/informes');
                 }}
                 className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
                   activeTab === 'reports' ? 'text-purple-600' : ''
-                }`}
+                }`}  
               >
                 Informes
               </button>
               <button
                 onClick={() => {
-                  setActiveTab('calendar');
-                  navigate('/supervisor/centro/calendario');
+                  setActiveTab('settings');
+                  navigate('/supervisor/delegacion/ajustes');
                 }}
                 className={`text-gray-900 hover:text-gray-700 px-3 py-2 font-medium ${
-                  activeTab === 'calendar' ? 'text-purple-600' : ''
+                  activeTab === 'settings' ? 'text-purple-600' : ''
                 }`}
               >
-                Calendario
+                Configuración
               </button>
             </div>
             <div className="flex items-center space-x-4">
-              <button
-                onClick={() => navigate('/login/supervisor/centro')}
+              <button 
+                onClick={handleLogout}
                 className="flex items-center text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg transition-colors duration-200"
               >
                 <LogOut className="h-5 w-5 mr-2" />
@@ -937,10 +691,11 @@ export default function SupervisorDashboard() {
 
       <Routes>
         <Route path="/" element={<Overview />} />
-        <Route path="/empleados" element={<SupervisorEmployees />} />
-        <Route path="/solicitudes" element={<SupervisorRequests />} />
-        <Route path="/informes" element={<SupervisorReports />} />
-        <Route path="/calendario" element={<SupervisorCalendar />} />
+        <Route path="/empleados" element={<SupervisorDelegationEmployees />} />
+        <Route path="/solicitudes" element={<SupervisorDelegationRequests />} />        
+        <Route path="/calendario" element={<SupervisorDelegationCalendar />} />
+        <Route path="/informes" element={<SupervisorDelegationReports />} />
+        <Route path="/ajustes" element={<SupervisorDelegationSettings />} />
       </Routes>
     </div>
   );
