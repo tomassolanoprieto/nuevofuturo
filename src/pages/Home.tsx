@@ -74,9 +74,6 @@ export default function Home() {
               className="h-32 w-auto object-contain"
             />
           </div>
-          <h2 className="text-xl text-gray-600 mb-12">
-            Atendemos a la infancia más vulnerable que se enfrenta al abandono y exclusión social
-          </h2>
           
           <div className="max-w-2xl mx-auto">
             <div className="grid grid-cols-2 gap-4">
