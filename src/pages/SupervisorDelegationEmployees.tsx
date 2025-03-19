@@ -79,6 +79,29 @@ const jobPositions = [
   "COORD. TERRITORIAL ANDALUCIA"
 ];
 
+const workCenterOptions = [
+  "MADRID HOGARES DE EMANCIPACION V. DEL PARDILLO",
+  "MADRID CUEVAS DE ALMANZORA",
+  "MADRID OFICINA",
+  "MADRID ALCOBENDAS",
+  "MADRID MIGUEL HERNANDEZ",
+  "MADRID HUMANITARIAS",
+  "MADRID VALDEBERNARDO",
+  "MADRID JOSE DE PASAMONTE",
+  "MADRID IBIZA",
+  "MADRID PASEO EXTREMADURA",
+  "MADRID DIRECTORES DE CENTRO",
+  "MADRID GABRIEL USERA",
+  "MADRID ARROYO DE LAS PILILLAS",
+  "MADRID CENTRO DE DIA CARMEN HERRERO",
+  "MADRID HOGARES DE EMANCIPACION SANTA CLARA",
+  "MADRID HOGARES DE EMANCIPACION BOCANGEL",
+  "MADRID AVDA DE AMERICA",
+  "MADRID VIRGEN DEL PUIG",
+  "MADRID ALMACEN",
+  "MADRID HOGARES DE EMANCIPACION ROQUETAS",
+];
+
 export default function SupervisorEmployees() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
@@ -107,62 +130,96 @@ export default function SupervisorEmployees() {
   const employeesPerPage = 25;
   const supervisorEmail = localStorage.getItem('supervisorEmail');
 
+  // Función para obtener la lista de empleados
+  const fetchEmployees = async () => {
+  try {
+    setLoading(true);
+    setError(null);
+
+    // Verificar que supervisorDelegations tenga valores
+    if (supervisorDelegations.length === 0) {
+      throw new Error('No se han cargado las delegaciones del supervisor');
+    }
+
+    // Obtener empleados filtrados por delegación y estado (activo/inactivo)
+    const { data: employeesData, error: employeesError } = await supabase
+      .from('employee_profiles')
+      .select('*')
+      .in('delegation', supervisorDelegations)
+      .eq('is_active', showActive)
+      .order('fiscal_name', { ascending: true });
+
+    if (employeesError) throw employeesError;
+
+    console.log("Empleados obtenidos:", employeesData); // Depuración
+    setEmployees(employeesData || []);
+  } catch (err) {
+    console.error('Error obteniendo empleados:', err);
+    setError(err instanceof Error ? err.message : 'Error al cargar los datos');
+  } finally {
+    setLoading(false);
+  }
+};
+
   useEffect(() => {
-    const getSupervisorInfo = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const getSupervisorInfo = async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        if (!supervisorEmail) {
-          throw new Error('No se encontró el correo electrónico del supervisor');
-        }
-
-        const { data: supervisor, error: supervisorError } = await supabase
-          .from('supervisor_profiles')
-          .select('delegations')
-          .eq('email', supervisorEmail)
-          .single();
-
-        if (supervisorError) throw supervisorError;
-
-        if (!supervisor?.delegations?.length) {
-          throw new Error('No se encontraron delegaciones asignadas');
-        }
-
-        setSupervisorDelegations(supervisor.delegations);
-
-        if (supervisor.delegations.length === 1) {
-          setNewEmployee((prev) => ({
-            ...prev,
-            delegation: supervisor.delegations[0],
-            selectedDelegation: supervisor.delegations[0]
-          }));
-        }
-
-        const { data: employeesData, error: employeesError } = await supabase
-          .from('employee_profiles')
-          .select('*')
-          .in('delegation', supervisor.delegations)
-          .eq('is_active', showActive)
-          .order('fiscal_name', { ascending: true });
-
-        if (employeesError) throw employeesError;
-
-        setEmployees(employeesData || []);
-      } catch (err) {
-        console.error('Error obteniendo la información del supervisor:', err);
-        setError(err instanceof Error ? err.message : 'Error al cargar los datos');
-      } finally {
-        setLoading(false);
+      if (!supervisorEmail) {
+        throw new Error('No se encontró el correo electrónico del supervisor');
       }
-    };
 
-    getSupervisorInfo();
-  }, [supervisorEmail, showActive]);
+      // Obtener las delegaciones del supervisor
+      const { data: supervisor, error: supervisorError } = await supabase
+        .from('supervisor_profiles')
+        .select('delegations')
+        .eq('email', supervisorEmail)
+        .single();
+
+      if (supervisorError) throw supervisorError;
+
+      if (!supervisor?.delegations?.length) {
+        throw new Error('No se encontraron delegaciones asignadas');
+      }
+
+      console.log("Delegaciones del supervisor:", supervisor.delegations); // Depuración
+      setSupervisorDelegations(supervisor.delegations);
+
+      // Configurar la delegación por defecto si solo hay una
+      if (supervisor.delegations.length === 1) {
+        setNewEmployee((prev) => ({
+          ...prev,
+          delegation: supervisor.delegations[0],
+          selectedDelegation: supervisor.delegations[0],
+        }));
+      }
+
+      // Llamar a fetchEmployees solo si supervisorDelegations tiene valores
+      if (supervisor.delegations.length > 0) {
+        await fetchEmployees();
+      }
+    } catch (err) {
+      console.error('Error obteniendo la información del supervisor:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar los datos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  getSupervisorInfo();
+}, [supervisorEmail]); // Dependencia: supervisorEmail
+
+  useEffect(() => {
+  if (supervisorDelegations.length > 0) {
+    fetchEmployees();
+  }
+}, [supervisorDelegations, showActive]); // Dependencias: supervisorDelegations y showActive
 
   const handleEditClick = (employee: Employee) => {
     setEditingEmployeeId(employee.id);
-    setEditingEmployeeData(employee);
+    setEditingEmployeeData({ ...employee });
   };
 
   const handleSaveClick = async () => {
@@ -179,7 +236,7 @@ export default function SupervisorEmployees() {
 
       if (error) throw error;
 
-      await fetchEmployees();
+      await fetchEmployees(); // Actualiza la lista de empleados
       setEditingEmployeeId(null);
       setEditingEmployeeData(null);
     } catch (err) {
@@ -221,16 +278,7 @@ export default function SupervisorEmployees() {
 
       if (insertError) throw insertError;
 
-      const { data: employeesData, error: employeesError } = await supabase
-        .from('employee_profiles')
-        .select('*')
-        .in('delegation', supervisorDelegations)
-        .eq('is_active', showActive)
-        .order('fiscal_name', { ascending: true });
-
-      if (employeesError) throw employeesError;
-
-      setEmployees(employeesData || []);
+      await fetchEmployees(); // Actualiza la lista de empleados
       setIsAdding(false);
       setNewEmployee({
         fiscal_name: '',
@@ -263,21 +311,34 @@ export default function SupervisorEmployees() {
 
       if (updateError) throw updateError;
 
-      const { data: employeesData, error: employeesError } = await supabase
-        .from('employee_profiles')
-        .select('*')
-        .in('delegation', supervisorDelegations)
-        .eq('is_active', true)
-        .order('fiscal_name', { ascending: true });
-
-      if (employeesError) throw employeesError;
-
-      setEmployees(employeesData || []);
+      await fetchEmployees(); // Actualiza la lista de empleados
       setSelectedEmployees([]);
       setShowActive(false);
     } catch (err) {
       console.error('Error desactivando empleados:', err);
       setError('Error al desactivar empleados');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleActivateSelected = async () => {
+    try {
+      setLoading(true);
+
+      const { error: updateError } = await supabase
+        .from('employee_profiles')
+        .update({ is_active: true })
+        .in('id', selectedEmployees);
+
+      if (updateError) throw updateError;
+
+      await fetchEmployees(); // Actualiza la lista de empleados
+      setSelectedEmployees([]);
+      setShowActive(true); // Cambia a la vista de empleados activos
+    } catch (err) {
+      console.error('Error reactivando empleados:', err);
+      setError('Error al reactivar empleados');
     } finally {
       setLoading(false);
     }
@@ -364,16 +425,7 @@ export default function SupervisorEmployees() {
           }
         }
 
-        const { data: employeesData, error: employeesError } = await supabase
-          .from('employee_profiles')
-          .select('*')
-          .in('delegation', supervisorDelegations)
-          .eq('is_active', showActive)
-          .order('fiscal_name', { ascending: true });
-
-        if (employeesError) throw employeesError;
-
-        setEmployees(employeesData || []);
+        await fetchEmployees(); // Actualiza la lista de empleados
       };
       reader.readAsText(file);
     } catch (err) {
@@ -404,14 +456,25 @@ export default function SupervisorEmployees() {
             <UserPlus className="w-5 h-5" />
             Añadir un nuevo empleado
           </button>
-          <button
-            onClick={handleDeactivateSelected}
-            disabled={selectedEmployees.length === 0 || loading}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <X className="w-5 h-5" />
-            Desactivar Seleccionados
-          </button>
+          {showActive ? (
+            <button
+              onClick={handleDeactivateSelected}
+              disabled={selectedEmployees.length === 0 || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <X className="w-5 h-5" />
+              Desactivar Seleccionados
+            </button>
+          ) : (
+            <button
+              onClick={handleActivateSelected}
+              disabled={selectedEmployees.length === 0 || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Check className="w-5 h-5" />
+              Activar Seleccionados
+            </button>
+          )}
           <button
             onClick={handleExportEmployees}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -667,7 +730,6 @@ export default function SupervisorEmployees() {
       )}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        {/* Contenedor con scroll horizontal */}
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead>
