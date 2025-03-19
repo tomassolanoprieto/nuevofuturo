@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import { UserPlus, Search, Download, Upload, Check, X, Edit, Save } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
+// Interfaces para los tipos de datos
 interface Employee {
   id: string;
   fiscal_name: string;
@@ -32,6 +33,7 @@ interface NewEmployee {
   selectedWorkCenter?: string;
 }
 
+// Opciones para los centros de trabajo
 const workCenterOptions = [
   'MADRID HOGARES DE EMANCIPACION V. DEL PARDILLO',
   'MADRID CUEVAS DE ALMANZORA',
@@ -54,6 +56,7 @@ const workCenterOptions = [
   'MADRID HOGARES DE EMANCIPACION BOCANGEL'
 ];
 
+// Opciones para los puestos de trabajo
 const jobPositions = [
   "EDUCADOR/A SOCIAL",
   "AUX. TÉCNICO/A EDUCATIVO/A",
@@ -86,6 +89,7 @@ const jobPositions = [
   "COORD. TERRITORIAL ANDALUCIA"
 ];
 
+// Opciones para las delegaciones
 const delegationOptions = [
   "MADRID",
   "ALAVA",
@@ -129,6 +133,37 @@ export default function SupervisorEmployees() {
   const employeesPerPage = 25;
   const supervisorEmail = localStorage.getItem('supervisorEmail');
 
+  // Función para obtener empleados
+  const fetchEmployees = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Verificar que supervisorWorkCenters tenga valores
+      if (supervisorWorkCenters.length === 0) {
+        throw new Error('No se han cargado los centros de trabajo del supervisor');
+      }
+
+      // Obtener empleados filtrados por centros de trabajo y estado (activo/inactivo)
+      const { data: employeesData, error: employeesError } = await supabase
+        .from('employee_profiles')
+        .select('*')
+        .overlaps('work_centers', supervisorWorkCenters)
+        .eq('is_active', showActive)
+        .order('fiscal_name', { ascending: true });
+
+      if (employeesError) throw employeesError;
+
+      setEmployees(employeesData || []);
+    } catch (err) {
+      console.error('Error obteniendo empleados:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar los datos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Obtener los centros de trabajo del supervisor
   useEffect(() => {
     const getSupervisorInfo = async () => {
       try {
@@ -160,17 +195,6 @@ export default function SupervisorEmployees() {
             selectedWorkCenter: supervisor.work_centers[0]
           }));
         }
-
-        const { data: employeesData, error: employeesError } = await supabase
-          .from('employee_profiles')
-          .select('*')
-          .overlaps('work_centers', supervisor.work_centers)
-          .eq('is_active', showActive)
-          .order('fiscal_name', { ascending: true });
-
-        if (employeesError) throw employeesError;
-
-        setEmployees(employeesData || []);
       } catch (err) {
         console.error('Error obteniendo la información del supervisor:', err);
         setError(err instanceof Error ? err.message : 'Error al cargar los datos');
@@ -180,13 +204,22 @@ export default function SupervisorEmployees() {
     };
 
     getSupervisorInfo();
-  }, [supervisorEmail, showActive]);
+  }, [supervisorEmail]);
 
+  // Cargar empleados cuando supervisorWorkCenters cambie
+  useEffect(() => {
+    if (supervisorWorkCenters.length > 0) {
+      fetchEmployees();
+    }
+  }, [supervisorWorkCenters, showActive]);
+
+  // Función para manejar el clic en el botón de editar
   const handleEditClick = (employee: Employee) => {
     setEditingEmployeeId(employee.id);
-    setEditingEmployeeData(employee);
+    setEditingEmployeeData({ ...employee });
   };
 
+  // Función para guardar los cambios de un empleado editado
   const handleSaveClick = async () => {
     if (!editingEmployeeData) return;
 
@@ -201,6 +234,7 @@ export default function SupervisorEmployees() {
 
       if (error) throw error;
 
+      // Recargar la lista de empleados después de guardar
       await fetchEmployees();
       setEditingEmployeeId(null);
       setEditingEmployeeData(null);
@@ -212,11 +246,13 @@ export default function SupervisorEmployees() {
     }
   };
 
+  // Función para cancelar la edición
   const handleCancelClick = () => {
     setEditingEmployeeId(null);
     setEditingEmployeeData(null);
   };
 
+  // Función para manejar cambios en los campos de edición
   const handleInputChange = (field: keyof Employee, value: string | string[]) => {
     if (editingEmployeeData) {
       setEditingEmployeeData({ ...editingEmployeeData, [field]: value });
@@ -300,6 +336,36 @@ export default function SupervisorEmployees() {
     } catch (err) {
       console.error('Error desactivando empleados:', err);
       setError('Error al desactivar empleados');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleActivateSelected = async () => {
+    try {
+      setLoading(true);
+
+      const { error: updateError } = await supabase
+        .from('employee_profiles')
+        .update({ is_active: true })
+        .in('id', selectedEmployees);
+
+      if (updateError) throw updateError;
+
+      const { data: employeesData, error: employeesError } = await supabase
+        .from('employee_profiles')
+        .select('*')
+        .overlaps('work_centers', supervisorWorkCenters)
+        .eq('is_active', false)
+        .order('fiscal_name', { ascending: true });
+
+      if (employeesError) throw employeesError;
+
+      setEmployees(employeesData || []);
+      setSelectedEmployees([]);
+    } catch (err) {
+      console.error('Error reactivando empleados:', err);
+      setError('Error al reactivar empleados');
     } finally {
       setLoading(false);
     }
@@ -428,14 +494,25 @@ export default function SupervisorEmployees() {
             <UserPlus className="w-5 h-5" />
             Añadir un nuevo empleado
           </button>
-          <button
-            onClick={handleDeactivateSelected}
-            disabled={selectedEmployees.length === 0 || loading}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <X className="w-5 h-5" />
-            Desactivar Seleccionados
-          </button>
+          {showActive ? (
+            <button
+              onClick={handleDeactivateSelected}
+              disabled={selectedEmployees.length === 0 || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <X className="w-5 h-5" />
+              Desactivar Seleccionados
+            </button>
+          ) : (
+            <button
+              onClick={handleActivateSelected}
+              disabled={selectedEmployees.length === 0 || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Check className="w-5 h-5" />
+              Activar Seleccionados
+            </button>
+          )}
           <button
             onClick={handleExportEmployees}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
