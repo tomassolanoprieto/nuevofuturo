@@ -316,6 +316,32 @@ export default function CompanyEmployees() {
     }
   };
 
+  const handleActivateSelected = async () => {
+    try {
+      setLoading(true);
+
+      const { error: updateError } = await supabase
+        .from('employee_profiles')
+        .update({ is_active: true })
+        .in('id', selectedEmployees);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      setShowActive(true);
+      await fetchEmployees();
+      setSelectedEmployees([]);
+      
+      alert('Empleados reactivados correctamente');
+    } catch (err) {
+      console.error('Error reactivating employees:', err);
+      alert('Error al reactivar empleados');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleExportEmployees = () => {
     const csvContent = [
       ['ID', 'Nombre', 'Tipo Documento', 'Documento', 'Email', 'Centros de Trabajo', 'Delegación', 'Fecha Incorporación', 'Fecha Antigüedad', 'Estado', 'Puestos de Trabajo'],
@@ -486,14 +512,25 @@ export default function CompanyEmployees() {
             <UserPlus className="w-5 h-5" />
             Añadir un nuevo empleado
           </button>
-          <button
-            onClick={handleDeactivateSelected}
-            disabled={selectedEmployees.length === 0 || loading}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <UserX className="w-5 h-5" />
-            Desactivar Seleccionados
-          </button>
+          {showActive ? (
+            <button
+              onClick={handleDeactivateSelected}
+              disabled={selectedEmployees.length === 0 || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <UserX className="w-5 h-5" />
+              Desactivar Seleccionados
+            </button>
+          ) : (
+            <button
+              onClick={handleActivateSelected}
+              disabled={selectedEmployees.length === 0 || loading}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Check className="w-5 h-5" />
+              Activar Seleccionados
+            </button>
+          )}
           <button
             onClick={handleExportEmployees}
             className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
