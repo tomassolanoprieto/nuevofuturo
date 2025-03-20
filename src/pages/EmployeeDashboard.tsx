@@ -28,10 +28,6 @@ function TimeControl() {
   const [workCenters, setWorkCenters] = useState<string[]>([]);
   const [showWorkCenterSelector, setShowWorkCenterSelector] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [geolocation, setGeolocation] = useState<{ latitude: number | null; longitude: number | null }>({
-    latitude: null,
-    longitude: null,
-  });
 
   useEffect(() => {
     const checkActiveSession = async () => {
@@ -112,24 +108,6 @@ function TimeControl() {
     checkActiveSession();
   }, []);
 
-  const getGeolocation = async () => {
-    try {
-      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
-      });
-      return {
-        latitude: position.coords.latitude,
-        longitude: position.coords.longitude,
-      };
-    } catch (error) {
-      console.error('Error obteniendo la geolocalización:', error);
-      return {
-        latitude: null,
-        longitude: null,
-      };
-    }
-  };
-
   const handleTimeEntry = async (entryType: 'clock_in' | 'break_start' | 'break_end' | 'clock_out') => {
     try {
       setLoading(true);
@@ -159,10 +137,6 @@ function TimeControl() {
         }
       }
 
-      // Obtener la geolocalización (puede ser null si no se obtiene)
-      const { latitude, longitude } = await getGeolocation();
-      setGeolocation({ latitude, longitude });
-
       const { error: insertError } = await supabase
         .from('time_entries')
         .insert([{
@@ -171,8 +145,6 @@ function TimeControl() {
           time_type: entryType === 'clock_in' ? selectedTimeType : null,
           work_center: entryType === 'clock_in' ? selectedWorkCenter : null,
           timestamp: new Date().toISOString(),
-          latitude,
-          longitude,
         }]);
 
       if (insertError) throw insertError;
@@ -224,7 +196,7 @@ function TimeControl() {
     <div className="max-w-7xl mx-auto px-4 py-6">
       <div className="space-y-6 max-w-md mx-auto">
         <div className="bg-white p-6 rounded-xl shadow-lg">
-          <h2 className="text-xl font-semibold text-gray-800 mb-6">Control de Tiempo</h2>
+          <h2 className="text-xl font-semibold text-gray-800 mb-6">Registro de Jornada</h2>
 
           {error && (
             <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700">
@@ -369,14 +341,6 @@ function TimeControl() {
               </p>
             </div>
           )}
-
-          {geolocation.latitude && geolocation.longitude && (
-            <div className="mt-4 p-4 bg-purple-50 rounded-lg">
-              <p className="text-purple-700 font-medium">
-                Ubicación registrada: Latitud {geolocation.latitude}, Longitud {geolocation.longitude}
-              </p>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -409,7 +373,7 @@ function EmployeeDashboard() {
             <div className="flex items-center space-x-8">
               <div className="flex items-center">
                 <Clock className="h-8 w-8 text-blue-600 mr-2" />
-                <span className="text-xl font-bold text-gray-900">Portal Empleado</span>
+                <span className="text-xl font-bold text-gray-900">Portal Trabajador/a</span>
               </div>
               <Link to="/empleado/fichar" className="text-gray-900 hover:text-gray-700 px-3 py-2 font-medium">
                 Fichar
