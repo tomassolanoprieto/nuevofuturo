@@ -5,12 +5,15 @@ import { supabase } from '../lib/supabase';
 type RequestType = 'fichajes' | 'planificador';
 type TimeEntryType = 'clock_in' | 'break_start' | 'break_end' | 'clock_out';
 type PlannerType = 'Horas compensadas' | 'Horas vacaciones' | 'Horas asuntos propios';
+type TimeType = 'turno' | 'coordinacion' | 'formacion' | 'otros';
 
 interface TimeRequest {
   id: string;
   employee_id: string;
   datetime: string;
   entry_type: TimeEntryType;
+  time_type: TimeType | null;
+  work_center: string;
   comment: string;
   status: 'pending' | 'approved' | 'rejected';
   created_at: string;
@@ -36,6 +39,9 @@ export default function EmployeeRequests() {
   const [datetime, setDatetime] = useState('');
   const [comment, setComment] = useState('');
   const [entryType, setEntryType] = useState<TimeEntryType>('clock_in');
+  const [timeType, setTimeType] = useState<TimeType>('turno');
+  const [workCenters, setWorkCenters] = useState<string[]>([]);
+  const [selectedWorkCenter, setSelectedWorkCenter] = useState<string>('');
   const [timeRequests, setTimeRequests] = useState<TimeRequest[]>([]);
   
   // Planner request state
@@ -47,7 +53,37 @@ export default function EmployeeRequests() {
 
   useEffect(() => {
     fetchRequests();
+    fetchWorkCenters();
   }, []);
+
+  const fetchWorkCenters = async () => {
+    try {
+      const employeeId = localStorage.getItem('employeeId');
+      if (!employeeId) {
+        throw new Error('No se encontró el ID del empleado');
+      }
+
+      const { data, error } = await supabase
+        .from('employee_profiles')
+        .select('work_centers')
+        .eq('id', employeeId)
+        .single();
+
+      if (error) throw error;
+
+      if (data?.work_centers) {
+        setWorkCenters(data.work_centers);
+        setSelectedWorkCenter(data.work_centers[0] || '');
+      } else {
+        console.warn('No se encontraron centros de trabajo para el empleado.');
+        setWorkCenters([]);
+        setSelectedWorkCenter('');
+      }
+    } catch (err) {
+      console.error('Error fetching work centers:', err);
+      setError(err instanceof Error ? err.message : 'Error al cargar los centros de trabajo');
+    }
+  };
 
   const fetchRequests = async () => {
     try {
@@ -59,7 +95,6 @@ export default function EmployeeRequests() {
         throw new Error('No se encontró el ID del empleado');
       }
 
-      // Fetch time requests
       const { data: timeData, error: timeError } = await supabase
         .from('time_requests')
         .select('*')
@@ -69,7 +104,6 @@ export default function EmployeeRequests() {
       if (timeError) throw timeError;
       setTimeRequests(timeData || []);
 
-      // Fetch planner requests
       const { data: plannerData, error: plannerError } = await supabase
         .from('planner_requests')
         .select('*')
@@ -102,8 +136,10 @@ export default function EmployeeRequests() {
         .from('time_requests')
         .insert([{
           employee_id: employeeId,
-          datetime,
+          datetime: new Date(datetime).toISOString(), // Convertir a UTC
           entry_type: entryType,
+          time_type: entryType === 'clock_in' ? timeType : null,
+          work_center: selectedWorkCenter,
           comment,
           status: 'pending'
         }]);
@@ -113,6 +149,7 @@ export default function EmployeeRequests() {
       setDatetime('');
       setComment('');
       setEntryType('clock_in');
+      setTimeType('turno');
       await fetchRequests();
 
     } catch (err) {
@@ -250,6 +287,24 @@ export default function EmployeeRequests() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Centro de trabajo
+                </label>
+                <select
+                  value={selectedWorkCenter}
+                  onChange={(e) => setSelectedWorkCenter(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                >
+                  {workCenters.map((center) => (
+                    <option key={center} value={center}>
+                      {center}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Tipo de fichaje
                 </label>
                 <select
@@ -264,6 +319,25 @@ export default function EmployeeRequests() {
                   <option value="clock_out">Salida</option>
                 </select>
               </div>
+
+              {entryType === 'clock_in' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Tipo de fichaje (solo para entrada)
+                  </label>
+                  <select
+                    value={timeType}
+                    onChange={(e) => setTimeType(e.target.value as TimeType)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    required
+                  >
+                    <option value="turno">Fichaje de turno</option>
+                    <option value="coordinacion">Fichaje de coordinación</option>
+                    <option value="formacion">Fichaje de formación</option>
+                    <option value="otros">Otros</option>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -374,6 +448,12 @@ export default function EmployeeRequests() {
                       Tipo
                     </th>
                     <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Tipo de fichaje
+                    </th>
+                    <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Centro de trabajo
+                    </th>
+                    <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Estado
                     </th>
                     <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -384,13 +464,13 @@ export default function EmployeeRequests() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {loading ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-4 text-center">
+                      <td colSpan={6} className="px-6 py-4 text-center">
                         Cargando solicitudes...
                       </td>
                     </tr>
                   ) : timeRequests.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-6 py-4 text-center">
+                      <td colSpan={6} className="px-6 py-4 text-center">
                         No hay solicitudes para mostrar
                       </td>
                     </tr>
@@ -398,10 +478,19 @@ export default function EmployeeRequests() {
                     timeRequests.map((request) => (
                       <tr key={request.id}>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {new Date(request.datetime).toLocaleString()}
+                          {new Date(request.datetime).toLocaleString('es-ES', {
+                            timeZone: 'Europe/Madrid', // Ajusta la zona horaria según el usuario
+                            hour12: false, // Usar formato de 24 horas
+                          })}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           {getEntryTypeText(request.entry_type)}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {request.time_type || 'N/A'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          {request.work_center || 'N/A'}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeClasses(request.status)}`}>
@@ -461,10 +550,16 @@ export default function EmployeeRequests() {
                           {request.planner_type}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {new Date(request.start_date).toLocaleString()}
+                          {new Date(request.start_date).toLocaleString('es-ES', {
+                            timeZone: 'Europe/Madrid', // Ajusta la zona horaria según el usuario
+                            hour12: false, // Usar formato de 24 horas
+                          })}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {new Date(request.end_date).toLocaleString()}
+                          {new Date(request.end_date).toLocaleString('es-ES', {
+                            timeZone: 'Europe/Madrid', // Ajusta la zona horaria según el usuario
+                            hour12: false, // Usar formato de 24 horas
+                          })}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadgeClasses(request.status)}`}>
