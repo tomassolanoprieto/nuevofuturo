@@ -9,9 +9,9 @@ function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const portalTitle = portal === 'empresa' ? 'Empresa' : 
-                     portal === 'supervisor' ? 'Supervisor' : 
-                     portal === 'inspector' ? 'Inspector' : 
-                     'Empleado';
+                     portal === 'supervisor' ? 'Supervisor/a' : 
+                     portal === 'inspector' ? 'Inspector/a' : 
+                     'Trabajador/a'; // Cambiado de "Empleado" a "Trabajador/a"
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recoveryEmail, setRecoveryEmail] = useState('');
@@ -34,7 +34,7 @@ function Login() {
 
     try {
       if (location.pathname.includes('inspector')) {
-        // Verificar credenciales del Inspector
+        // Verificar credenciales del Inspector/a
         const { data: inspectorData, error: inspectorError } = await supabase
           .from('inspector_credentials')
           .select('*')
@@ -46,10 +46,10 @@ function Login() {
           throw new Error('Credenciales inválidas');
         }
 
-        // Redirigir al Dashboard del Inspector
+        // Redirigir al Dashboard del Inspector/a
         navigate('/inspector');
       } else if (location.pathname.includes('supervisor')) {
-        // Verificar credenciales del Supervisor
+        // Verificar credenciales del Supervisor/a
         const { data: supervisorData, error: supervisorError } = await supabase
           .from('supervisor_profiles')
           .select('*')
@@ -62,18 +62,18 @@ function Login() {
           throw new Error('Credenciales inválidas');
         }
 
-        // Almacenar el correo electrónico y el tipo de supervisor en localStorage
+        // Almacenar el correo electrónico y el tipo de supervisor/a en localStorage
         localStorage.setItem('supervisorEmail', supervisorData.email);
         localStorage.setItem('supervisorType', supervisorType);
 
-        // Redirigir según el tipo de supervisor
+        // Redirigir según el tipo de supervisor/a
         if (supervisorType === 'delegation') {
           navigate('/supervisor/delegacion');
         } else {
           navigate('/supervisor/centro');
         }
       } else if (portal === 'empleado') {
-        // Verificar credenciales del Empleado
+        // Verificar credenciales del Trabajador/a
         const { data: employeeData, error: employeeError } = await supabase
           .from('employee_profiles')
           .select('*')
@@ -95,7 +95,7 @@ function Login() {
 
         if (sessionError) throw sessionError;
 
-        // Almacenar el ID del empleado en localStorage
+        // Almacenar el ID del trabajador/a en localStorage
         localStorage.setItem('employeeId', employeeData.id);
 
         navigate('/empleado');
@@ -140,7 +140,7 @@ function Login() {
     setRecoverySuccess(false);
 
     try {
-      // Obtener el PIN del empleado
+      // Obtener el PIN del trabajador/a
       const { data: employeeData, error: employeeError } = await supabase
         .from('employee_profiles')
         .select('pin, email')
@@ -149,7 +149,7 @@ function Login() {
         .single();
 
       if (employeeError || !employeeData?.pin) {
-        throw new Error('No se encontró ningún empleado activo con ese email');
+        throw new Error('No se encontró ningún trabajador/a activo con ese email');
       }
 
       // Enviar correo con el PIN usando EmailJS
@@ -195,8 +195,8 @@ function Login() {
             <Clock className="w-12 h-12 text-blue-600 mx-auto mb-4" />
           )}
           <h2 className="text-2xl font-bold text-gray-900">
-            Portal {isSupervisorDelegation ? 'Supervisor Delegación' : 
-                   isSupervisorCenter ? 'Supervisor Centro' : 
+            Portal {isSupervisorDelegation ? 'Supervisor/a Delegación' : 
+                   isSupervisorCenter ? 'Supervisor/a Centro' : 
                    portalTitle}
           </h2>
           <p className="text-gray-600">Inicia sesión en tu cuenta</p>
