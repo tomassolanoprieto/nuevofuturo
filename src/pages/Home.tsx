@@ -90,7 +90,7 @@ export default function Home() {
                 className="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
               >
                 <Users className="w-5 h-5" />
-                Empleado
+                Trabajador/a
               </button>
 
               <button
@@ -98,7 +98,7 @@ export default function Home() {
                 className="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
               >
                 <Shield className="w-5 h-5" />
-                Supervisor Delegación
+                Supervisor/a Delegación
               </button>
 
               <button
@@ -106,7 +106,7 @@ export default function Home() {
                 className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
               >
                 <Shield className="w-5 h-5" />
-                Supervisor Centro
+                Supervisor/a Centro
               </button>
 
               {/* Botón del Inspector centrado */}
@@ -116,7 +116,7 @@ export default function Home() {
                   className="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-3 px-6 rounded-lg shadow-md transition duration-300 flex items-center justify-center gap-2"
                 >
                   <Shield className="w-5 h-5" />
-                  Inspector
+                  Inspector/a
                 </button>
               </div>
             </div>
