@@ -29,7 +29,6 @@ interface NewEmployee {
   employee_id: string;
   seniority_date: string;
   job_positions: string[];
-  company_id?: string;
 }
 
 const delegationOptions = [
@@ -102,6 +101,39 @@ const workCenterOptions = [
   "MADRID HOGARES DE EMANCIPACION ROQUETAS",
 ];
 
+const SelectMultiple = ({
+  options,
+  selected,
+  onChange,
+  size = 3
+}: {
+  options: string[];
+  selected: string[];
+  onChange: (selected: string[]) => void;
+  size?: number;
+}) => {
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+    onChange(selectedOptions);
+  };
+
+  return (
+    <select
+      multiple
+      value={selected}
+      onChange={handleChange}
+      className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+      size={size}
+    >
+      {options.map(option => (
+        <option key={option} value={option}>
+          {option}
+        </option>
+      ))}
+    </select>
+  );
+};
+
 export default function SupervisorEmployees() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
@@ -113,7 +145,6 @@ export default function SupervisorEmployees() {
   const [error, setError] = useState<string | null>(null);
   const [supervisorDelegations, setSupervisorDelegations] = useState<string[]>([]);
   const [supervisorWorkCenters, setSupervisorWorkCenters] = useState<string[]>([]);
-  const [currentCompanyId, setCurrentCompanyId] = useState<string | null>(null);
   const [newEmployee, setNewEmployee] = useState<NewEmployee>({
     fiscal_name: '',
     email: '',
@@ -147,10 +178,6 @@ export default function SupervisorEmployees() {
         throw new Error('No se encontró el correo del supervisor');
       }
 
-      if (!supervisorDelegations || supervisorDelegations.length === 0) {
-        throw new Error('No se han cargado las delegaciones del supervisor');
-      }
-
       const { data: employeesData, error: employeesError } = await supabase
         .from('employee_profiles')
         .select('*')
@@ -160,7 +187,12 @@ export default function SupervisorEmployees() {
 
       if (employeesError) throw employeesError;
 
-      setEmployees(employeesData || []);
+      setEmployees(employeesData?.map(emp => ({
+        ...emp,
+        work_centers: emp.work_centers || [],
+        job_positions: emp.job_positions || []
+      })) || []);
+
     } catch (err) {
       console.error('Error obteniendo empleados:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar los datos');
@@ -181,21 +213,18 @@ export default function SupervisorEmployees() {
 
         const { data: supervisor, error: supError } = await supabase
           .from('supervisor_profiles')
-          .select('company_id, delegations, work_centers')
+          .select('delegations, work_centers')
           .eq('email', supervisorEmail)
           .single();
 
         if (supError) throw supError;
         if (!supervisor) throw new Error('Supervisor no encontrado');
-        if (!supervisor.company_id) throw new Error('El supervisor no tiene compañía asignada');
 
-        setCurrentCompanyId(supervisor.company_id);
         setSupervisorDelegations(supervisor.delegations || []);
         setSupervisorWorkCenters(supervisor.work_centers || []);
 
         setNewEmployee(prev => ({
           ...prev,
-          company_id: supervisor.company_id,
           delegation: supervisor.delegations?.[0] || 'MADRID',
           work_centers: []
         }));
@@ -219,7 +248,11 @@ export default function SupervisorEmployees() {
 
   const handleEditClick = (employee: Employee) => {
     setEditingEmployeeId(employee.id);
-    setEditingEmployeeData({ ...employee });
+    setEditingEmployeeData({ 
+      ...employee,
+      work_centers: employee.work_centers || [],
+      job_positions: employee.job_positions || []
+    });
   };
 
   const handleSaveClick = async () => {
@@ -272,25 +305,17 @@ export default function SupervisorEmployees() {
       setLoading(true);
       setError(null);
 
-      // Verify company_id is available
-      if (!currentCompanyId) {
-        setError('No se encontró la empresa asociada. Por favor, recargue la página e intente nuevamente.');
-        return;
-      }
-
       const employeeData = {
         ...newEmployee,
-        company_id: currentCompanyId,
+        company_id: 'd9b176c0-e18f-4b8a-a8e6-9734160dcb70',
         is_active: true,
         pin: Math.floor(100000 + Math.random() * 900000).toString(),
         created_at: new Date().toISOString()
       };
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('employee_profiles')
-        .insert([employeeData])
-        .select()
-        .single();
+        .insert(employeeData);
 
       if (error) throw error;
 
@@ -305,13 +330,12 @@ export default function SupervisorEmployees() {
         delegation: supervisorDelegations[0] || 'MADRID',
         employee_id: '',
         seniority_date: '',
-        job_positions: [],
-        company_id: currentCompanyId
+        job_positions: []
       });
 
     } catch (err) {
-      console.error('Error añadiendo empleado:', err);
-      setError(`Error al crear empleado: ${err instanceof Error ? err.message : 'Error desconocido'}`);
+      console.error('Error:', err);
+      setError(err instanceof Error ? err.message : 'Error desconocido');
     } finally {
       setLoading(false);
     }
@@ -787,307 +811,312 @@ export default function SupervisorEmployees() {
       )}
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead>
-              <tr>
-                <th className="px-6 py-3 bg-gray-50 text-left">
-                  <input
-                    type="checkbox"
-                    checked={selectedEmployees.length === currentEmployees.length}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedEmployees(currentEmployees.map(emp => emp.id));
-                      } else {
-                        setSelectedEmployees([]);
-                      }
-                    }}
-                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                  />
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  ID
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Nombre
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Tipo Documento
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Documento
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Centros de Trabajo
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Delegación
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  PIN
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Fecha Incorporación
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Fecha Antigüedad
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Puestos de Trabajo
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {currentEmployees.map((employee) => (
-                <tr key={employee.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <input
-                      type="checkbox"
-                      checked={selectedEmployees.includes(employee.id)}
-                      onChange={(e) => {
-                        if (e.target.checked) {
-                          setSelectedEmployees([...selectedEmployees, employee.id]);
-                        } else {
-                          setSelectedEmployees(selectedEmployees.filter(id => id !== employee.id));
-                        }
-                      }}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <input
-                        type="text"
-                        value={editingEmployeeData?.employee_id || ''}
-                        onChange={(e) => handleInputChange('employee_id', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      />
-                    ) : (
-                      employee.employee_id
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <input
-                        type="text"
-                        value={editingEmployeeData?.fiscal_name || ''}
-                        onChange={(e) => handleInputChange('fiscal_name', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      />
-                    ) : (
-                      employee.fiscal_name
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <select
-                        value={editingEmployeeData?.document_type || ''}
-                        onChange={(e) => handleInputChange('document_type', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      >
-                        <option value="DNI">DNI</option>
-                        <option value="NIE">NIE</option>
-                        <option value="Pasaporte">Pasaporte</option>
-                      </select>
-                    ) : (
-                      employee.document_type
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <input
-                        type="text"
-                        value={editingEmployeeData?.document_number || ''}
-                        onChange={(e) => handleInputChange('document_number', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      />
-                    ) : (
-                      employee.document_number
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <input
-                        type="email"
-                        value={editingEmployeeData?.email || ''}
-                        onChange={(e) => handleInputChange('email', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      />
-                    ) : (
-                      employee.email
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <select
-                        multiple
-                        value={editingEmployeeData?.work_centers || []}
-                        onChange={(e) => {
-                          const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
-                          handleInputChange('work_centers', selectedOptions);
-                        }}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                        size={3}
-                      >
-                        {supervisorWorkCenters.map(center => (
-                          <option key={center} value={center}>
-                            {center}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      employee.work_centers.join(', ')
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <select
-                        value={editingEmployeeData?.delegation || ''}
-                        onChange={(e) => handleInputChange('delegation', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      >
-                        {supervisorDelegations.map(delegation => (
-                          <option key={delegation} value={delegation}>
-                            {delegation}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      employee.delegation
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <input
-                        type="text"
-                        value={editingEmployeeData?.pin || ''}
-                        onChange={(e) => handleInputChange('pin', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      />
-                    ) : (
-                      employee.pin
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {new Date(employee.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <input
-                        type="date"
-                        value={editingEmployeeData?.seniority_date || ''}
-                        onChange={(e) => handleInputChange('seniority_date', e.target.value)}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                      />
-                    ) : (
-                      employee.seniority_date ? new Date(employee.seniority_date).toLocaleDateString() : ''
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <select
-                        multiple
-                        value={editingEmployeeData?.job_positions || []}
-                        onChange={(e) => {
-                          const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
-                          handleInputChange('job_positions', selectedOptions);
-                        }}
-                        className="w-full px-2 py-1 border border-gray-300 rounded-lg"
-                        size={3}
-                      >
-                        {jobPositions.map(position => (
-                          <option key={position} value={position}>
-                            {position}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      employee.job_positions ? employee.job_positions.join(', ') : ''
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
-                      employee.is_active 
-                        ? 'bg-green-100 text-green-800' 
-                        : 'bg-red-100 text-red-800'
-                    }`}>
-                      {employee.is_active ? (
-                        <>
-                          <Check className="w-3 h-3" />
-                          Activo
-                        </>
-                      ) : (
-                        <>
-                          <X className="w-3 h-3" />
-                          Inactivo
-                        </>
-                      )}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    {editingEmployeeId === employee.id ? (
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleSaveClick}
-                          className="p-1 text-green-600 hover:text-green-800"
-                        >
-                          <Save className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={handleCancelClick}
-                          className="p-1 text-red-600 hover:text-red-800"
-                        >
-                          <X className="w-5 h-5" />
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => handleEditClick(employee)}
-                        className="p-1 text-blue-600 hover:text-blue-800"
-                      >
-                        <Edit className="w-5 h-5" />
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {totalPages > 1 && (
-          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
-            <div className="flex items-center justify-between">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50"
-              >
-                Anterior
-              </button>
-              <span className="text-sm text-gray-700">
-                Página {currentPage} de {totalPages}
+  <div className="overflow-x-auto">
+    <table className="min-w-full divide-y divide-gray-200">
+      <thead>
+        <tr>
+          <th className="px-6 py-3 bg-gray-50 text-left">
+            <input
+              type="checkbox"
+              checked={selectedEmployees.length === currentEmployees.length}
+              onChange={(e) => {
+                if (e.target.checked) {
+                  setSelectedEmployees(currentEmployees.map(emp => emp.id));
+                } else {
+                  setSelectedEmployees([]);
+                }
+              }}
+              className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            ID
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Nombre
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Tipo Documento
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Documento
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Email
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Centros de Trabajo
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Delegación
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            PIN
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Fecha Incorporación
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Fecha Antigüedad
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Puestos de Trabajo
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Estado
+          </th>
+          <th className="px-6 py-3 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+            Acciones
+          </th>
+        </tr>
+      </thead>
+      <tbody className="bg-white divide-y divide-gray-200">
+        {currentEmployees.map((employee) => (
+          <tr key={employee.id} className="hover:bg-gray-50">
+            <td className="px-6 py-4">
+              <input
+                type="checkbox"
+                checked={selectedEmployees.includes(employee.id)}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSelectedEmployees([...selectedEmployees, employee.id]);
+                  } else {
+                    setSelectedEmployees(selectedEmployees.filter(id => id !== employee.id));
+                  }
+                }}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <input
+                  type="text"
+                  value={editingEmployeeData?.employee_id || ''}
+                  onChange={(e) => handleInputChange('employee_id', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                />
+              ) : (
+                employee.employee_id
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <input
+                  type="text"
+                  value={editingEmployeeData?.fiscal_name || ''}
+                  onChange={(e) => handleInputChange('fiscal_name', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                />
+              ) : (
+                employee.fiscal_name
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <select
+                  value={editingEmployeeData?.document_type || ''}
+                  onChange={(e) => handleInputChange('document_type', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                >
+                  <option value="DNI">DNI</option>
+                  <option value="NIE">NIE</option>
+                  <option value="Pasaporte">Pasaporte</option>
+                </select>
+              ) : (
+                employee.document_type
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <input
+                  type="text"
+                  value={editingEmployeeData?.document_number || ''}
+                  onChange={(e) => handleInputChange('document_number', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                />
+              ) : (
+                employee.document_number
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <input
+                  type="email"
+                  value={editingEmployeeData?.email || ''}
+                  onChange={(e) => handleInputChange('email', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                />
+              ) : (
+                employee.email
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <select
+                  multiple
+                  value={editingEmployeeData?.work_centers || []}
+                  onChange={(e) => {
+                    const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+                    handleInputChange('work_centers', selectedOptions);
+                  }}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                  size={3}
+                >
+                  {workCenterOptions
+                    .filter(center => 
+                      center.startsWith(editingEmployeeData?.delegation?.split('_')[0] || '')
+                    )
+                    .map(center => (
+                      <option key={center} value={center}>
+                        {center}
+                      </option>
+                    ))
+                  }
+                </select>
+              ) : (
+                employee.work_centers?.join(', ') || 'No asignado'
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <select
+                  value={editingEmployeeData?.delegation || ''}
+                  onChange={(e) => handleInputChange('delegation', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                >
+                  {supervisorDelegations.map(delegation => (
+                    <option key={delegation} value={delegation}>
+                      {delegation}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                employee.delegation
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <input
+                  type="text"
+                  value={editingEmployeeData?.pin || ''}
+                  onChange={(e) => handleInputChange('pin', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                />
+              ) : (
+                employee.pin
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {new Date(employee.created_at).toLocaleDateString()}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <input
+                  type="date"
+                  value={editingEmployeeData?.seniority_date || ''}
+                  onChange={(e) => handleInputChange('seniority_date', e.target.value)}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                />
+              ) : (
+                employee.seniority_date ? new Date(employee.seniority_date).toLocaleDateString() : ''
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <select
+                  multiple
+                  value={editingEmployeeData?.job_positions || []}
+                  onChange={(e) => {
+                    const selectedOptions = Array.from(e.target.selectedOptions, option => option.value);
+                    handleInputChange('job_positions', selectedOptions);
+                  }}
+                  className="w-full px-2 py-1 border border-gray-300 rounded-lg"
+                  size={3}
+                >
+                  {jobPositions.map(position => (
+                    <option key={position} value={position}>
+                      {position}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                employee.job_positions ? employee.job_positions.join(', ') : ''
+              )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                employee.is_active 
+                  ? 'bg-green-100 text-green-800' 
+                  : 'bg-red-100 text-red-800'
+              }`}>
+                {employee.is_active ? (
+                  <>
+                    <Check className="w-3 h-3" />
+                    Activo
+                  </>
+                ) : (
+                  <>
+                    <X className="w-3 h-3" />
+                    Inactivo
+                  </>
+                )}
               </span>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50"
-              >
-                Siguiente
-              </button>
-            </div>
-          </div>
-        )}
+            </td>
+            <td className="px-6 py-4 whitespace-nowrap">
+              {editingEmployeeId === employee.id ? (
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSaveClick}
+                    className="p-1 text-green-600 hover:text-green-800"
+                  >
+                    <Save className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={handleCancelClick}
+                    className="p-1 text-red-600 hover:text-red-800"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => handleEditClick(employee)}
+                  className="p-1 text-blue-600 hover:text-blue-800"
+                >
+                  <Edit className="w-5 h-5" />
+                </button>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  {totalPages > 1 && (
+    <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+          disabled={currentPage === 1}
+          className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50"
+        >
+          Anterior
+        </button>
+        <span className="text-sm text-gray-700">
+          Página {currentPage} de {totalPages}
+        </span>
+        <button
+          onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+          disabled={currentPage === totalPages}
+          className="px-4 py-2 border border-gray-300 rounded-lg disabled:opacity-50"
+        >
+          Siguiente
+        </button>
       </div>
+    </div>
+  )}
+</div>
     </div>
   );
 }
