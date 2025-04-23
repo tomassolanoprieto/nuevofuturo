@@ -260,55 +260,65 @@ export default function SupervisorEmployees() {
   };
 
   const handleAddEmployee = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
+  e.preventDefault();
+  setLoading(true);
+  setError(null);
 
-    try {
-      const workCenters = supervisorWorkCenters.length === 1
-        ? supervisorWorkCenters
-        : [newEmployee.selectedWorkCenter || ''];
+  try {
+    const workCenters = supervisorWorkCenters.length === 1
+      ? supervisorWorkCenters
+      : [newEmployee.selectedWorkCenter || ''];
 
-      const { error: insertError } = await supabase
-        .from('employee_profiles')
-        .insert([{
-          ...newEmployee,
-          work_centers: workCenters,
-          is_active: true
-        }]);
+    // Crear un objeto sin el campo selectedWorkCenter
+    const employeeToInsert = {
+      fiscal_name: newEmployee.fiscal_name,
+      email: newEmployee.email,
+      document_type: newEmployee.document_type,
+      document_number: newEmployee.document_number,
+      work_centers: workCenters,
+      delegation: newEmployee.delegation,
+      employee_id: newEmployee.employee_id,
+      seniority_date: newEmployee.seniority_date,
+      job_positions: newEmployee.job_positions,
+      is_active: true
+    };
 
-      if (insertError) throw insertError;
+    const { error: insertError } = await supabase
+      .from('employee_profiles')
+      .insert([employeeToInsert]);
 
-      const { data: employeesData, error: employeesError } = await supabase
-        .from('employee_profiles')
-        .select('*')
-        .overlaps('work_centers', supervisorWorkCenters)
-        .eq('is_active', showActive)
-        .order('fiscal_name', { ascending: true });
+    if (insertError) throw insertError;
 
-      if (employeesError) throw employeesError;
+    const { data: employeesData, error: employeesError } = await supabase
+      .from('employee_profiles')
+      .select('*')
+      .overlaps('work_centers', supervisorWorkCenters)
+      .eq('is_active', showActive)
+      .order('fiscal_name', { ascending: true });
 
-      setEmployees(employeesData || []);
-      setIsAdding(false);
-      setNewEmployee({
-        fiscal_name: '',
-        email: '',
-        document_type: 'DNI',
-        document_number: '',
-        work_centers: [],
-        delegation: 'MADRID',
-        employee_id: '',
-        seniority_date: '',
-        job_positions: [],
-        selectedWorkCenter: ''
-      });
-    } catch (err) {
-      console.error('Error añadiendo empleado:', err);
-      setError(err instanceof Error ? err.message : 'Error al añadir empleado');
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (employeesError) throw employeesError;
+
+    setEmployees(employeesData || []);
+    setIsAdding(false);
+    setNewEmployee({
+      fiscal_name: '',
+      email: '',
+      document_type: 'DNI',
+      document_number: '',
+      work_centers: [],
+      delegation: 'MADRID',
+      employee_id: '',
+      seniority_date: '',
+      job_positions: [],
+      selectedWorkCenter: ''
+    });
+  } catch (err) {
+    console.error('Error añadiendo empleado:', err);
+    setError(err instanceof Error ? err.message : 'Error al añadir empleado');
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleDeactivateSelected = async () => {
     try {
