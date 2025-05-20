@@ -32,6 +32,14 @@ function InspectorOverview() {
   const [workCentersCount, setWorkCentersCount] = useState(0);
   const { company } = useCompany();
 
+  // Estados para paginación y filtrado de fichajes
+  const [entriesCurrentPage, setEntriesCurrentPage] = useState(0);
+  const [entriesPerPage] = useState(10);
+  const [selectedMonth, setSelectedMonth] = useState<string>(
+    new Date().toISOString().slice(0, 7)
+  );
+  const [loadingEntries, setLoadingEntries] = useState(false);
+
   const fetchEmployees = async () => {
     try {
       setLoading(true);
@@ -95,6 +103,40 @@ function InspectorOverview() {
     } catch (err) {
       console.error('Error fetching time entries:', err);
       setError(err instanceof Error ? err.message : 'Error al cargar fichajes');
+    }
+  };
+
+  const loadAllEmployeeEntries = async (employeeId: string) => {
+    try {
+      setLoadingEntries(true);
+      let allEntries: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+
+      while (true) {
+        const { data, error } = await supabase
+          .from('time_entries')
+          .select('*')
+          .eq('employee_id', employeeId)
+          .eq('is_active', true)
+          .order('timestamp', { ascending: false })
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+
+        allEntries = [...allEntries, ...data];
+        page++;
+
+        if (data.length < pageSize) break;
+      }
+
+      return allEntries;
+    } catch (err) {
+      console.error('Error loading employee entries:', err);
+      throw err;
+    } finally {
+      setLoadingEntries(false);
     }
   };
 
@@ -238,6 +280,42 @@ function InspectorOverview() {
     return totalTime;
   };
 
+  const filterEntriesByMonth = (entries: any[]) => {
+    if (!selectedMonth || selectedMonth === '') return entries;
+    
+    const [year, month] = selectedMonth.split('-').map(Number);
+    const startDate = new Date(year, month - 1, 1);
+    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+    
+    return entries.filter(entry => {
+      try {
+        const entryDate = new Date(entry.timestamp);
+        return entryDate >= startDate && entryDate <= endDate;
+      } catch (e) {
+        console.error('Error parsing date:', entry.timestamp, e);
+        return false;
+      }
+    });
+  };
+
+  const getPaginatedEntries = () => {
+    if (!selectedEmployee) return [];
+    
+    const filteredEntries = filterEntriesByMonth(selectedEmployee.entries);
+    const startIndex = entriesCurrentPage * entriesPerPage;
+    const endIndex = startIndex + entriesPerPage;
+    
+    return filteredEntries
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(startIndex, endIndex);
+  };
+
+  const getTotalEntriesPages = () => {
+    if (!selectedEmployee) return 0;
+    const filteredEntries = filterEntriesByMonth(selectedEmployee.entries);
+    return Math.ceil(filteredEntries.length / entriesPerPage);
+  };
+
   const calculateEmployeeWorkTime = (employeeEntries: any[]) => {
     const entriesByDate = employeeEntries.reduce((acc: any, entry) => {
       const date = new Date(entry.timestamp).toISOString().split('T')[0];
@@ -251,6 +329,20 @@ function InspectorOverview() {
       totalTime += calculateDailyWorkTime(dayEntries);
     });
     return totalTime;
+  };
+
+  const refreshEmployeeData = async (employeeId: string) => {
+    try {
+      const entries = await loadAllEmployeeEntries(employeeId);
+      setSelectedEmployee(prev => ({
+        ...prev,
+        entries: entries || [],
+        totalTime: calculateEmployeeWorkTime(entries || [])
+      }));
+    } catch (err) {
+      console.error('Error refreshing employee data:', err);
+      setError('Error al actualizar los datos del empleado');
+    }
   };
 
   const getEntryTypeText = (type: string) => {
@@ -399,9 +491,19 @@ function InspectorOverview() {
                     <tr
                       key={employee.id}
                       className="hover:bg-gray-50 cursor-pointer"
-                      onClick={() => {
-                        setSelectedEmployee({ employee, totalTime, entries });
-                        setShowDetailsModal(true);
+                      onClick={async () => {
+                        try {
+                          const allEntries = await loadAllEmployeeEntries(employee.id);
+                          setSelectedEmployee({
+                            employee,
+                            totalTime: calculateEmployeeWorkTime(allEntries),
+                            entries: allEntries
+                          });
+                          setShowDetailsModal(true);
+                          setEntriesCurrentPage(0);
+                        } catch (err) {
+                          setError('Error al cargar los fichajes del empleado');
+                        }
                       }}
                     >
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -511,6 +613,30 @@ function InspectorOverview() {
                   <div className="mt-6">
                     <h3 className="text-lg font-medium mb-4">Registro de Fichajes</h3>
                     
+                    <div className="mb-4 flex items-center gap-2">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Filtrar por mes
+                      </label>
+                      <input
+                        type="month"
+                        value={selectedMonth}
+                        onChange={(e) => {
+                          setSelectedMonth(e.target.value);
+                          setEntriesCurrentPage(0);
+                        }}
+                        className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                      <button
+                        onClick={() => {
+                          setSelectedMonth('');
+                          setEntriesCurrentPage(0);
+                        }}
+                        className="px-3 py-2 text-sm text-blue-600 hover:text-blue-800"
+                      >
+                        Mostrar todos
+                      </button>
+                    </div>
+                    
                     <div className="bg-gray-50 rounded-lg overflow-hidden">
                       <table className="min-w-full divide-y divide-gray-200">
                         <thead>
@@ -530,9 +656,20 @@ function InspectorOverview() {
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-gray-200">
-                          {selectedEmployee.entries
-                            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-                            .map((entry) => (
+                          {loadingEntries ? (
+                            <tr>
+                              <td colSpan={4} className="px-6 py-4 text-center">
+                                Cargando fichajes...
+                              </td>
+                            </tr>
+                          ) : getPaginatedEntries().length === 0 ? (
+                            <tr>
+                              <td colSpan={4} className="px-6 py-4 text-center">
+                                No hay fichajes para mostrar
+                              </td>
+                            </tr>
+                          ) : (
+                            getPaginatedEntries().map((entry) => (
                               <tr key={entry.id} className="hover:bg-gray-50">
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                                   {new Date(entry.timestamp).toLocaleDateString()}
@@ -547,9 +684,40 @@ function InspectorOverview() {
                                   {entry.entry_type === 'clock_in' ? getTimeTypeText(entry.time_type) : ''}
                                 </td>
                               </tr>
-                            ))}
+                            ))
+                          )}
                         </tbody>
                       </table>
+                    </div>
+
+                    <div className="flex justify-between items-center mt-4">
+                      <button
+                        onClick={() => setEntriesCurrentPage(prev => Math.max(prev - 1, 0))}
+                        disabled={entriesCurrentPage === 0}
+                        className={`flex items-center gap-1 px-3 py-1 rounded-md ${
+                          entriesCurrentPage === 0 ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        <ChevronLeft className="w-5 h-5" />
+                        Anterior
+                      </button>
+                      
+                      <span className="text-sm text-gray-600">
+                        Página {entriesCurrentPage + 1} de {getTotalEntriesPages()}
+                      </span>
+                      
+                      <button
+                        onClick={() => setEntriesCurrentPage(prev => prev + 1)}
+                        disabled={(entriesCurrentPage + 1) >= getTotalEntriesPages()}
+                        className={`flex items-center gap-1 px-3 py-1 rounded-md ${
+                          (entriesCurrentPage + 1) >= getTotalEntriesPages() 
+                            ? 'text-gray-400 cursor-not-allowed' 
+                            : 'text-gray-700 hover:bg-gray-100'
+                        }`}
+                      >
+                        Siguiente
+                        <ChevronRight className="w-5 h-5" />
+                      </button>
                     </div>
                   </div>
                 </div>
